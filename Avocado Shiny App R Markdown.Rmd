@@ -1,0 +1,174 @@
+---
+title: "Avocado Shiny App"
+output: html_document
+---
+
+```{r}
+#set working directory. 
+
+#import file
+
+library(Hmisc)
+library(stringr)
+library(lubridate)
+library(dplyr)
+library(data.table)
+library(microbenchmark)
+library(ggplot2)
+library(plotly)
+library(readr)
+```
+
+```{r}
+avocado_data <- read_csv("avocado.csv")
+```
+
+```{r}
+#edit columns: no white space and all lower
+colnames(avocado_data) <- str_trim(tolower(colnames(avocado_data)))
+```
+
+#1. Inspect Data
+```{r}
+glimpse(avocado_data)
+
+lapply(avocado_data,class)
+#date is character --> convert to date
+
+summary(avocado_data)
+
+sum(is.na(avocado_data)) #0!
+```
+
+```{r}
+#convert date column to class: date
+avocado_data$date <- as.Date(avocado_data$date, format = "%m/%d/%Y")
+class(avocado_data$date) #Date
+
+#create column for just the month
+avocado_data$month_of_observation <- month(avocado_data$date)
+class(avocado_data$month_of_observation) #integer
+
+#create column for day of month 
+avocado_data$month_day <- mday(avocado_data$date)
+```
+
+#Start building shiny app
+```{r}
+library(shiny)
+
+ui <- fluidPage(
+  sidebarLayout(
+    sidebarPanel(
+      tabsetPanel(
+        tabPanel("Regions_Filter",
+                 radioButtons("rb", "Select Avocado Type", choices = unique(avocado_data$type), selected = unique(avocado_data$type)[1],inline = FALSE),
+                 selectInput("si","Select Region of Interest",choices = unique(avocado_data$region))
+                 
+        ),
+        tabPanel("Date_Filter",
+                 dateRangeInput("dr","Enter Range of Dates", start = min(avocado_data$date), end = max(avocado_data$date))
+        )
+      )
+      
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Scatterplot",
+                 h2("Average Avocado Price Per Region"),
+                 plotlyOutput("Scatter")
+        ),
+        tabPanel("Data Table",
+                 h2("Data Table"),
+                 dataTableOutput(outputId = "table")
+        ),
+        tabPanel("Bargraph",
+                 h2("Bargraph of Total Volume per Region"),
+                 plotlyOutput("Bar1")
+        ),
+        
+        tabPanel("Read Me",
+                 p("Are you a Millennial? Are you unable to afford a house because you continue to splurge on luxuries such as avocado toast? In May 2017, an
+                   Australian millionnaire commented on Millennials' lack of homeownership because of said splurges. Now, I can use this data to compare the 
+                   prices of avocadoes throughout different regions in the U.S. to see how much avocadoes truly cost. "),
+                 p("The first graph depicts the average price of avocadoes in different regions during 2015 - 2018. I can alter avocado type to either
+                   conventional or organic to compare prices between the two. For instance, an organic avocado in the Albany region cost about $1.87 in the
+                   beginning of 2015, but the price fell to around $1.40 in the beginning of 2018. A conventional avocado in the same region in January
+                   2015 cost about $1.14, but its price actually increased to $1.35 in the beginning of 2018."),
+                 p("My data table shows the total number of bags per region for each week from 2015 to 2018. Some weeks had almost as many as 11,000 bags
+                   in total, whereas others only had a total of about 5800 bags."),
+                 p("My final graph, a bar graph representing the total volume of avocadoes per region, shows that total volume of convetional and organic
+                   avocadoes vary throughout the year. ")
+                 )
+        
+                 )
+      
+      )
+      )
+  
+  
+  )
+
+server <- function(input, output, session) {
+  filtered_data <- reactive({filter(avocado_data, type == input$rb)})
+  observe({
+    updateSelectInput(session,"si", choices = unique(filtered_data()$region))
+  })
+  
+  
+  filtered_data_2 <- reactive({filter(filtered_data(), region == input$si, date>=input$dr[1], date <= input$dr[2])})
+  
+  output$Scatter <- renderPlotly(
+    {
+      p <- ggplot(filtered_data_2(), aes(x = date, y = averageprice))+geom_point()+
+        theme(axis.text.x = element_text(size=10),
+              panel.background = element_rect(fill = "lightblue",
+                                              colour = "lightblue",
+                                              size = 0.5, linetype = "solid"),
+              panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                              colour = "white"), 
+              panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                              colour = "white")
+        ) + xlab("Year") + ylab("Average Price")+ geom_smooth()
+      ggplotly(p)    
+    }
+  )
+  output$table <- renderDataTable(
+    {
+      select(filtered_data_2(),c("year","month_of_observation","month_day","total_bags"))
+    }
+  )
+  
+  output$table_2 <- renderDataTable(
+    {
+      filtered_data_3()
+    }
+  )
+  
+  
+  output$Bar1 <- renderPlotly(
+    {
+      p <- ggplot(filtered_data_2(), aes(x = month_of_observation, y = total_volume, height = 10)) + geom_bar(stat = "sum", fill = "#56B4E9")+
+        
+        xlab("Month") + ylab("Total\nVolume") +
+        theme(axis.title.y = element_text(size = 8),
+              axis.title.x = element_text(size = 8),
+              panel.background = element_rect(fill = "lightblue",
+                                              colour = "lightblue",
+                                              size = 0.5, linetype = "solid"),
+              panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                              colour = "white"),
+              panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                              colour = "white")
+        ) 
+      ggplotly(p)
+    }
+  )
+  
+}
+
+
+#Launch shiny app
+shinyApp(ui, server)
+
+```
